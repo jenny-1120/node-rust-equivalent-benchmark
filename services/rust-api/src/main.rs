@@ -59,7 +59,7 @@ struct SeedItem {
     category: String,
     role: String,
     language: String,
-    title: String,
+    title: Arc<str>,
     tags: Vec<String>,
     popularity: f64,
     updated_at: String,
@@ -77,12 +77,12 @@ struct SearchRequest {
     per_category_limit: Option<usize>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchResponseItem {
     id: u64,
-    category: String,
-    title: String,
+    category: &'static str,
+    title: Arc<str>,
     score: f64,
     popularity: f64,
     is_purchased: bool,
@@ -118,7 +118,7 @@ async fn main() {
             let mut cloned = item.clone();
             cloned.id = item.id + idx * 100000;
             cloned.popularity = item.popularity + (idx % 10) as f64;
-            cloned.title = format!("{} #{}", item.title, idx);
+            cloned.title = format!("{} #{}", item.title, idx).into();
             seed.push(cloned);
         }
     }
@@ -182,62 +182,49 @@ async fn integrated_search_like(
     let per_category_limit = payload.per_category_limit.unwrap_or(30);
 
     let fan_out_start = Instant::now();
-    let mut handles = Vec::new();
+    let mut fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = Vec::new();
     for category in CATEGORIES {
-        let seed = Arc::clone(&state.seed);
-        let role = payload.role.clone();
-        let language = payload.language.clone();
-        let tokens_copy = tokens.clone();
-        let category_name = category.to_string();
-
-        let handle = tokio::spawn(async move {
-            let mut scored: Vec<(SeedItem, f64)> = seed
-                .iter()
-                .filter(|item| {
-                    if item.category != category_name {
-                        return false;
-                    }
-                    if role != "all" && item.role != role {
-                        return false;
-                    }
-                    if item.language != language {
-                        return false;
-                    }
-                    tokens_copy.iter().all(|token| {
-                        item.tags.iter().any(|tag| tag.contains(token))
-                            || item.title.to_lowercase().contains(token)
-                    })
+        let mut scored: Vec<(usize, f64)> = state
+            .seed
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                if item.category != category {
+                    return false;
+                }
+                if payload.role != "all" && item.role != payload.role {
+                    return false;
+                }
+                if item.language != payload.language {
+                    return false;
+                }
+                tokens.iter().all(|token| {
+                    item.tags.iter().any(|tag| tag.contains(token))
+                        || item.title.to_lowercase().contains(token)
                 })
-                .map(|item| (item.clone(), score_item(item, &tokens_copy)))
-                .collect();
+            })
+            .map(|(idx, item)| (idx, score_item(item, &tokens)))
+            .collect();
 
-            scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-            scored.truncate(per_category_limit * 2);
-            (category_name, scored)
-        });
-
-        handles.push(handle);
-    }
-
-    let mut fan_out_result: Vec<(String, Vec<(SeedItem, f64)>)> = Vec::new();
-    for handle in handles {
-        let result = handle.await.expect("join failed");
-        fan_out_result.push(result);
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        scored.truncate(per_category_limit * 2);
+        fan_out_result.push((category, scored));
     }
     STAGE_DURATION_MS
         .with_label_values(&[&state.service_name, "fanOutFilter"])
         .observe(fan_out_start.elapsed().as_secs_f64() * 1000.0);
 
     let post_process_start = Instant::now();
-    let mut purchase_adjusted: Vec<(String, Vec<(SeedItem, f64, bool)>)> = Vec::new();
+    let mut purchase_adjusted: Vec<(&'static str, Vec<(usize, f64, bool)>)> = Vec::new();
     for (category, scored) in fan_out_result {
         let adjusted = scored
             .into_iter()
-            .map(|(item, score)| {
-                let purchased =
-                    item.owner_user_id == payload.user_id || item.purchased_by.contains(&payload.user_id);
+            .map(|(idx, score)| {
+                let item = &state.seed[idx];
+                let purchased = item.owner_user_id == payload.user_id
+                    || item.purchased_by.contains(&payload.user_id);
                 let adjusted_score = if purchased { score * 1.1 } else { score };
-                (item, adjusted_score, purchased)
+                (idx, adjusted_score, purchased)
             })
             .collect::<Vec<_>>();
         purchase_adjusted.push((category, adjusted));
@@ -247,18 +234,21 @@ async fn integrated_search_like(
         .observe(post_process_start.elapsed().as_secs_f64() * 1000.0);
 
     let image_url_start = Instant::now();
-    let mut with_url: Vec<(String, Vec<SearchResponseItem>)> = Vec::new();
+    let mut with_url: Vec<(&'static str, Vec<Arc<SearchResponseItem>>)> = Vec::new();
     for (category, items) in purchase_adjusted {
         let mapped = items
             .into_iter()
-            .map(|(item, score, is_purchased)| SearchResponseItem {
-                id: item.id,
-                category: category.clone(),
-                title: item.title.clone(),
-                score,
-                popularity: item.popularity,
-                is_purchased,
-                image_url: build_image_url(&item, payload.user_id),
+            .map(|(idx, score, is_purchased)| {
+                let item = &state.seed[idx];
+                Arc::new(SearchResponseItem {
+                    id: item.id,
+                    category,
+                    title: Arc::clone(&item.title),
+                    score,
+                    popularity: item.popularity,
+                    is_purchased,
+                    image_url: build_image_url(item, payload.user_id),
+                })
             })
             .collect::<Vec<_>>();
         with_url.push((category, mapped));
@@ -268,11 +258,11 @@ async fn integrated_search_like(
         .observe(image_url_start.elapsed().as_secs_f64() * 1000.0);
 
     let merge_start = Instant::now();
-    let mut by_category: HashMap<String, Vec<SearchResponseItem>> = HashMap::new();
+    let mut by_category: HashMap<&str, Vec<Arc<SearchResponseItem>>> = HashMap::new();
     let mut merged = with_url
         .iter()
-        .flat_map(|(_, v)| v.clone())
-        .collect::<Vec<SearchResponseItem>>();
+        .flat_map(|(_, v)| v.iter().cloned())
+        .collect::<Vec<Arc<SearchResponseItem>>>();
     merged.sort_by(|a, b| b.score.total_cmp(&a.score));
     merged.truncate(per_category_limit * CATEGORIES.len());
 
