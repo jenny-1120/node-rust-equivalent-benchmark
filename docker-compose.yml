@@ -1,0 +1,94 @@
+services:
+  node-api:
+    build:
+      context: ./services/node-api
+    container_name: phasea-node-api
+    cpus: 2.0
+    mem_limit: 2g
+    environment:
+      - PORT=3001
+      - SERVICE_NAME=node-api
+      - DATASET_PATH=/app/data/seed/integrated-search-like.json
+      - DATASET_MULTIPLIER=50
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "3001:3001"
+
+  rust-api:
+    build:
+      context: ./services/rust-api
+    container_name: phasea-rust-api
+    cpus: 2.0
+    mem_limit: 2g
+    environment:
+      - PORT=3002
+      - SERVICE_NAME=rust-api
+      - DATASET_PATH=/app/data/seed/integrated-search-like.json
+      - DATASET_MULTIPLIER=50
+      - RUST_LOG=info
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "3002:3002"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: phasea-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - node-api
+      - rust-api
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: phasea-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  k6-node:
+    image: grafana/k6:0.53.0
+    container_name: phasea-k6-node
+    user: "0:0"
+    volumes:
+      - ./bench/k6:/scripts:ro
+      - ./results:/results
+    command:
+      - run
+      - /scripts/integrated-search-like.js
+      - --env
+      - TARGET_URL=http://node-api:3001
+      - --summary-export
+      - /results/node-summary.json
+    depends_on:
+      - node-api
+
+  k6-rust:
+    image: grafana/k6:0.53.0
+    container_name: phasea-k6-rust
+    user: "0:0"
+    volumes:
+      - ./bench/k6:/scripts:ro
+      - ./results:/results
+    command:
+      - run
+      - /scripts/integrated-search-like.js
+      - --env
+      - TARGET_URL=http://rust-api:3002
+      - --summary-export
+      - /results/rust-summary.json
+    depends_on:
+      - rust-api

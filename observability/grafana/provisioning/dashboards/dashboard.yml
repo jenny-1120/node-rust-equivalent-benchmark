@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: phasea
+    orgId: 1
+    folder: "Phase A"
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
