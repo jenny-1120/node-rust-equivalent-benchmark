@@ -8,6 +8,6 @@ RUN cargo build --release
 FROM alpine:3.20
 WORKDIR /app
 RUN apk add --no-cache libgcc
-COPY --from=build /app/target/release/phasea-rust-api /usr/local/bin/phasea-rust-api
+COPY --from=build /app/target/release/node-rust-equivalent-rust-api /usr/local/bin/node-rust-equivalent-rust-api
 EXPOSE 3002
-CMD ["phasea-rust-api"]
+CMD ["node-rust-equivalent-rust-api"]

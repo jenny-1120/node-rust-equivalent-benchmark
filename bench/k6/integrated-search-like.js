@@ -17,7 +17,7 @@ const payloads = [
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
-    phase_a: {
+    node_rust_equivalent: {
       executor: 'ramping-vus',
       startVUs: 5,
       stages: [

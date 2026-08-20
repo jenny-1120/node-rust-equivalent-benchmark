@@ -40,7 +40,7 @@
       "id": 1,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(phasea_request_duration_ms_bucket[2m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(node_rust_equivalent_request_duration_ms_bucket[2m])))",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -70,7 +70,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(phasea_request_duration_ms_bucket[2m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(node_rust_equivalent_request_duration_ms_bucket[2m])))",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -100,7 +100,7 @@
       "id": 3,
       "targets": [
         {
-          "expr": "sum by (service) (rate(phasea_requests_total[1m]))",
+          "expr": "sum by (service) (rate(node_rust_equivalent_requests_total[1m]))",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -130,7 +130,7 @@
       "id": 4,
       "targets": [
         {
-          "expr": "sum by (service) (rate(phasea_request_duration_ms_sum[1m])) / sum by (service) (rate(phasea_request_duration_ms_count[1m]))",
+          "expr": "sum by (service) (rate(node_rust_equivalent_request_duration_ms_sum[1m])) / sum by (service) (rate(node_rust_equivalent_request_duration_ms_count[1m]))",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -160,7 +160,7 @@
       "id": 5,
       "targets": [
         {
-          "expr": "sum by (service, stage) (rate(phasea_stage_duration_ms_sum[2m])) / sum by (service, stage) (rate(phasea_stage_duration_ms_count[2m]))",
+          "expr": "sum by (service, stage) (rate(node_rust_equivalent_stage_duration_ms_sum[2m])) / sum by (service, stage) (rate(node_rust_equivalent_stage_duration_ms_count[2m]))",
           "legendFormat": "{{service}} - {{stage}}",
           "refId": "A"
         }
@@ -172,7 +172,7 @@
   "schemaVersion": 39,
   "style": "dark",
   "tags": [
-    "phase-a",
+    "node-rust-equivalent",
     "node-vs-rust"
   ],
   "templating": {
@@ -184,8 +184,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Phase A - Node vs Rust",
-  "uid": "phasea-node-rust",
+  "title": "Node vs Rust Equivalent",
+  "uid": "node-rust-equivalent-node-rust",
   "version": 1,
   "weekStart": ""
 }

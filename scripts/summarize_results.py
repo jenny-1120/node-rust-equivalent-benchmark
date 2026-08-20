@@ -59,7 +59,7 @@ def main():
     node_row = format_row("node", node)
     rust_row = format_row("rust", rust)
 
-    print("=== Phase A Result Summary ===")
+    print("=== Node vs Rust Equivalent Result Summary ===")
     print(
         f"Node  : p95={node_row['p95']:.2f}ms p99={node_row['p99']:.2f}ms "
         f"rps={node_row['rps']:.2f} failRate={node_row['fail']:.4f} appP95={node_row['app_p95']:.2f}ms"

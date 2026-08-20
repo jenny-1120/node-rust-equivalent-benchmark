@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 static REQUEST_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| {
-    register_int_counter_vec!("phasea_requests_total", "Total benchmark requests", &["service"])
+    register_int_counter_vec!("node_rust_equivalent_requests_total", "Total benchmark requests", &["service"])
         .expect("register counter")
 });
 
 static STAGE_DURATION_MS: Lazy<HistogramVec> = Lazy::new(|| {
     register_histogram_vec!(
-        "phasea_stage_duration_ms",
+        "node_rust_equivalent_stage_duration_ms",
         "Stage duration in milliseconds",
         &["service", "stage"],
         vec![1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 400.0, 800.0, 1600.0]
@@ -34,7 +34,7 @@ static STAGE_DURATION_MS: Lazy<HistogramVec> = Lazy::new(|| {
 
 static REQUEST_DURATION_MS: Lazy<HistogramVec> = Lazy::new(|| {
     register_histogram_vec!(
-        "phasea_request_duration_ms",
+        "node_rust_equivalent_request_duration_ms",
         "End-to-end request duration in milliseconds",
         &["service"],
         vec![5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0]

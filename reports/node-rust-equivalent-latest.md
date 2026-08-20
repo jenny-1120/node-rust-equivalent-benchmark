@@ -1,4 +1,4 @@
-# Phase A Benchmark Report (Sample Run)
+# Node vs Rust Equivalent Benchmark Report (Sample Run)
 
 ## 실행 정보
 - Scope: DB 제외, `integratedSearch` 유사 앱 로직 비교
@@ -33,7 +33,7 @@
 - app elapsed p95: `-2.40%`
 
 ## 단계별 비교 확인 방법
-- Grafana 대시보드: `Phase A - Node vs Rust`
+- Grafana 대시보드: `Node vs Rust Equivalent`
 - 핵심 패널
   - Request p95/p99
   - Request Throughput

@@ -1,8 +1,10 @@
+name: node-rust-equivalent-benchmark
+
 services:
   node-api:
     build:
       context: ./services/node-api
-    container_name: phasea-node-api
+    container_name: node-rust-equivalent-node-api
     cpus: 2.0
     mem_limit: 2g
     environment:
@@ -18,7 +20,7 @@ services:
   rust-api:
     build:
       context: ./services/rust-api
-    container_name: phasea-rust-api
+    container_name: node-rust-equivalent-rust-api
     cpus: 2.0
     mem_limit: 2g
     environment:
@@ -34,7 +36,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.54.1
-    container_name: phasea-prometheus
+    container_name: node-rust-equivalent-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     volumes:
@@ -47,7 +49,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.1.4
-    container_name: phasea-grafana
+    container_name: node-rust-equivalent-grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -61,7 +63,7 @@ services:
 
   k6-node:
     image: grafana/k6:0.53.0
-    container_name: phasea-k6-node
+    container_name: node-rust-equivalent-k6-node
     user: "0:0"
     volumes:
       - ./bench/k6:/scripts:ro
@@ -78,7 +80,7 @@ services:
 
   k6-rust:
     image: grafana/k6:0.53.0
-    container_name: phasea-k6-rust
+    container_name: node-rust-equivalent-k6-rust
     user: "0:0"
     volumes:
       - ./bench/k6:/scripts:ro

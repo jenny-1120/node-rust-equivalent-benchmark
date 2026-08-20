@@ -1,4 +1,4 @@
-# Phase A Benchmark Report (Template)
+# Node vs Rust Equivalent Benchmark Report (Template)
 
 ## 1) 실행 정보
 - Date:
@@ -28,4 +28,4 @@
 
 ## 5) 메모
 - 관찰된 편향/한계:
-- Phase B(DB 포함) 필요 여부:
+- 다음 단계(DB 포함) 필요 여부:

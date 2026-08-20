@@ -1,5 +1,5 @@
 {
-  "name": "phasea-node-api",
+  "name": "node-rust-equivalent-node-api",
   "version": "1.0.0",
   "private": true,
   "type": "module",

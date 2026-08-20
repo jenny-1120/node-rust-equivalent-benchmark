@@ -1,4 +1,4 @@
-# Phase A Benchmark (Node TypeScript vs Rust)
+# Node vs Rust Equivalent Benchmark
 
 `integratedSearch`와 유사한 앱 레이어 로직(fan-out, 후처리, URL 가공, 정렬)을 DB 없이 동일 조건에서 비교하는 로컬 벤치마크 프로젝트입니다.
 
