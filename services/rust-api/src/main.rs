@@ -59,7 +59,7 @@ struct SeedItem {
     category: String,
     role: String,
     language: String,
-    title: Arc<str>,
+    title: String,
     tags: Vec<String>,
     popularity: f64,
     updated_at: String,
@@ -77,16 +77,32 @@ struct SearchRequest {
     per_category_limit: Option<usize>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchResponseItem {
     id: u64,
     category: &'static str,
-    title: Arc<str>,
+    title: String,
     score: f64,
     popularity: f64,
     is_purchased: bool,
     image_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchResponseMeta {
+    service: String,
+    elapsed_ms: f64,
+    total_candidates: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchResponse {
+    meta: SearchResponseMeta,
+    merged: Vec<SearchResponseItem>,
+    by_category: HashMap<&'static str, Vec<SearchResponseItem>>,
 }
 
 #[derive(Clone)]
@@ -118,7 +134,7 @@ async fn main() {
             let mut cloned = item.clone();
             cloned.id = item.id + idx * 100000;
             cloned.popularity = item.popularity + (idx % 10) as f64;
-            cloned.title = format!("{} #{}", item.title, idx).into();
+            cloned.title = format!("{} #{}", item.title, idx);
             seed.push(cloned);
         }
     }
@@ -183,6 +199,7 @@ async fn integrated_search_like(
 
     let fan_out_start = Instant::now();
     let mut fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = Vec::new();
+    fan_out_result.reserve(CATEGORIES.len());
     for category in CATEGORIES {
         let mut scored: Vec<(usize, f64)> = state
             .seed
@@ -216,6 +233,7 @@ async fn integrated_search_like(
 
     let post_process_start = Instant::now();
     let mut purchase_adjusted: Vec<(&'static str, Vec<(usize, f64, bool)>)> = Vec::new();
+    purchase_adjusted.reserve(CATEGORIES.len());
     for (category, scored) in fan_out_result {
         let adjusted = scored
             .into_iter()
@@ -234,39 +252,51 @@ async fn integrated_search_like(
         .observe(post_process_start.elapsed().as_secs_f64() * 1000.0);
 
     let image_url_start = Instant::now();
-    let mut with_url: Vec<(&'static str, Vec<Arc<SearchResponseItem>>)> = Vec::new();
+    let mut categorized_items: Vec<(&'static str, Vec<SearchResponseItem>)> = Vec::new();
+    categorized_items.reserve(CATEGORIES.len());
+    let mut merged_candidates: Vec<(usize, usize, f64)> = Vec::new();
+    merged_candidates.reserve(CATEGORIES.len() * per_category_limit * 2);
     for (category, items) in purchase_adjusted {
         let mapped = items
             .into_iter()
             .map(|(idx, score, is_purchased)| {
                 let item = &state.seed[idx];
-                Arc::new(SearchResponseItem {
+                SearchResponseItem {
                     id: item.id,
                     category,
-                    title: Arc::clone(&item.title),
+                    title: item.title.clone(),
                     score,
                     popularity: item.popularity,
                     is_purchased,
                     image_url: build_image_url(item, payload.user_id),
-                })
+                }
             })
             .collect::<Vec<_>>();
-        with_url.push((category, mapped));
+        let category_idx = categorized_items.len();
+        merged_candidates.extend(
+            mapped
+                .iter()
+                .enumerate()
+                .map(|(item_idx, item)| (category_idx, item_idx, item.score)),
+        );
+        categorized_items.push((category, mapped));
     }
     STAGE_DURATION_MS
         .with_label_values(&[&state.service_name, "imageUrlBuild"])
         .observe(image_url_start.elapsed().as_secs_f64() * 1000.0);
 
     let merge_start = Instant::now();
-    let mut by_category: HashMap<&str, Vec<Arc<SearchResponseItem>>> = HashMap::new();
-    let mut merged = with_url
-        .iter()
-        .flat_map(|(_, v)| v.iter().cloned())
-        .collect::<Vec<Arc<SearchResponseItem>>>();
-    merged.sort_by(|a, b| b.score.total_cmp(&a.score));
-    merged.truncate(per_category_limit * CATEGORIES.len());
+    merged_candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
+    merged_candidates.truncate(per_category_limit * CATEGORIES.len());
 
-    for (category, mapped) in with_url {
+    let mut merged = Vec::with_capacity(merged_candidates.len());
+    for (category_idx, item_idx, _) in merged_candidates {
+        merged.push(categorized_items[category_idx].1[item_idx].clone());
+    }
+
+    let mut by_category: HashMap<&'static str, Vec<SearchResponseItem>> = HashMap::new();
+    by_category.reserve(CATEGORIES.len());
+    for (category, mapped) in categorized_items {
         let mut sorted = mapped;
         sorted.sort_by(|a, b| b.score.total_cmp(&a.score));
         sorted.truncate(per_category_limit);
@@ -281,15 +311,15 @@ async fn integrated_search_like(
         .with_label_values(&[&state.service_name])
         .observe(elapsed_ms);
 
-    let response = serde_json::json!({
-        "meta": {
-            "service": state.service_name,
-            "elapsedMs": elapsed_ms,
-            "totalCandidates": state.seed.len()
+    let response = SearchResponse {
+        meta: SearchResponseMeta {
+            service: state.service_name,
+            elapsed_ms,
+            total_candidates: state.seed.len(),
         },
-        "merged": merged,
-        "byCategory": by_category
-    });
+        merged,
+        by_category,
+    };
 
     (StatusCode::OK, Json(response)).into_response()
 }
