@@ -7,11 +7,8 @@ services:
     container_name: node-rust-equivalent-node-api
     cpus: 2.0
     mem_limit: 2g
-    environment:
-      - PORT=3001
-      - SERVICE_NAME=node-api
-      - DATASET_PATH=/app/data/seed/integrated-search-like.json
-      - DATASET_MULTIPLIER=50
+    env_file:
+      - ./services/node-api/.env
     volumes:
       - ./data:/app/data:ro
     ports:
@@ -23,12 +20,8 @@ services:
     container_name: node-rust-equivalent-rust-api
     cpus: 2.0
     mem_limit: 2g
-    environment:
-      - PORT=3002
-      - SERVICE_NAME=rust-api
-      - DATASET_PATH=/app/data/seed/integrated-search-like.json
-      - DATASET_MULTIPLIER=50
-      - RUST_LOG=info
+    env_file:
+      - ./services/rust-api/.env
     volumes:
       - ./data:/app/data:ro
     ports:

@@ -1,6 +1,14 @@
+# 노드 모듈
 node_modules
 dist
 target
+
+# 디버그 정보
 .DS_Store
 results
+
+# 임시 파일
 tmp
+
+# 환경 변수
+*.env

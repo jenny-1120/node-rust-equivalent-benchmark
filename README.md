@@ -33,3 +33,21 @@
 - 동일 요청 payload, 동일 데이터셋 seed, 동일 컨테이너 자원
 - Node/Rust 모두 캐시 off
 - 1회성 결과 대신 반복 측정(최소 3회) 기반 판단
+
+## 환경 변수
+서버 설정은 서비스별 `.env`에 있습니다. `docker compose`가 `env_file`로 주입합니다.
+
+- Node: `services/node-api/.env`
+- Rust: `services/rust-api/.env`
+
+코드에도 기본값이 있어서, 변수를 빼도 서버는 뜹니다. 데이터 규모를 바꿀 때는 아래 두 파일의 `DATASET_MULTIPLIER`를 **같은 값**으로 맞추세요.
+
+| 변수 | Node 기본 | Rust 기본 | 설명 |
+|---|---|---|---|
+| `PORT` | `3001` | `3002` | HTTP 포트 |
+| `SERVICE_NAME` | `node-api` | `rust-api` | 메트릭/로그에 붙는 서비스명 |
+| `DATASET_PATH` | `/app/data/seed/integrated-search-like.json` | 동일 | 컨테이너 안 seed JSON 경로 |
+| `DATASET_MULTIPLIER` | `50` | `50` | seed 복제 배수. 원본 30행 × 이 값 = 메모리 row 수 |
+| `RUST_LOG` | — | `info` | Rust만 사용. 로그 레벨 |
+
+로컬에서 Docker 없이 띄울 때는 `DATASET_PATH`를 저장소 기준 `data/seed/integrated-search-like.json`으로 바꾸면 됩니다.
