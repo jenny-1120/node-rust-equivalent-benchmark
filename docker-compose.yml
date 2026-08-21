@@ -34,6 +34,25 @@ services:
     ports:
       - "3002:3002"
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: node-rust-equivalent-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    command:
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+      - "--disable_metrics=percpu,sched,tcp,udp,disk,diskIO,hugetlb,referenced_memory,cpu_topology,resctrl"
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: node-rust-equivalent-prometheus
@@ -46,6 +65,7 @@ services:
     depends_on:
       - node-api
       - rust-api
+      - cadvisor
 
   grafana:
     image: grafana/grafana:11.1.4

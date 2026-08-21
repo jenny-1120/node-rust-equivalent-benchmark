@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 mkdir -p results
 
 echo "[1/4] Starting core services..."
-docker compose up -d --build node-api rust-api prometheus grafana
+docker compose up -d --build node-api rust-api cadvisor prometheus grafana
 
 echo "[2/4] Running k6 for Node..."
 docker compose run --rm k6-node

@@ -167,6 +167,71 @@
       ],
       "title": "Stage Avg Duration (ms)",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "label_replace(sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*node-rust-equivalent-(node|rust)-api\"}[1m])), \"service\", \"$1\", \"name\", \".*node-rust-equivalent-(.+)\")",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Container CPU (cores)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "label_replace(sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*node-rust-equivalent-(node|rust)-api\"}[1m])) / 2 * 100, \"service\", \"$1\", \"name\", \".*node-rust-equivalent-(.+)\")",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Container CPU (% of 2-core limit)",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 39,
