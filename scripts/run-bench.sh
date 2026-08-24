@@ -18,4 +18,4 @@ docker compose run --rm k6-rust
 echo "[4/4] Summarizing results..."
 python3 scripts/summarize_results.py
 
-echo "Done. Check Grafana at http://localhost:3000 and summaries in ./results"
+echo "Done. Check Grafana at http://localhost:3300 and summaries in ./results"

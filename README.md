@@ -25,9 +25,9 @@
    - `./scripts/run-bench.sh`
 
 ## 대시보드
-- Grafana: [http://localhost:3000](http://localhost:3000)
+- Grafana: [http://localhost:3300](http://localhost:3300)
   - 기본 계정: `admin` / `admin`
-- Prometheus: [http://localhost:9090](http://localhost:9090)
+- Prometheus: [http://localhost:39090](http://localhost:39090)
 
 ## 공정 비교 원칙
 - 동일 요청 payload, 동일 데이터셋 seed, 동일 컨테이너 자원

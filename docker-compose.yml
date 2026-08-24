@@ -12,7 +12,7 @@ services:
     volumes:
       - ./data:/app/data:ro
     ports:
-      - "3001:3001"
+      - "3101:3001"
 
   rust-api:
     build:
@@ -25,7 +25,7 @@ services:
     volumes:
       - ./data:/app/data:ro
     ports:
-      - "3002:3002"
+      - "3102:3002"
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -40,7 +40,7 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
     ports:
-      - "8080:8080"
+      - "38080:8080"
     command:
       - "--docker_only=true"
       - "--store_container_labels=false"
@@ -54,7 +54,7 @@ services:
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "39090:9090"
     depends_on:
       - node-api
       - rust-api
@@ -70,7 +70,7 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "3300:3000"
     depends_on:
       - prometheus
 
