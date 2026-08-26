@@ -5,6 +5,7 @@ import { Trend } from 'k6/metrics';
 const elapsedTrend = new Trend('app_elapsed_ms');
 
 const targetUrl = __ENV.TARGET_URL || 'http://node-api:3001';
+const isWarmup = __ENV.K6_WARMUP === '1';
 
 const payloads = [
   { userId: 21, tagText: 'class study', role: 'teacher', language: 'ko', perCategoryLimit: 20 },
@@ -14,29 +15,44 @@ const payloads = [
   { userId: 33, tagText: 'space hero', role: 'all', language: 'en', perCategoryLimit: 30 }
 ];
 
-export const options = {
-  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
-  scenarios: {
-    node_rust_equivalent: {
-      executor: 'ramping-vus',
-      startVUs: 5,
-      stages: [
-        { duration: '2m', target: 20 },
-        { duration: '5m', target: 50 },
-        { duration: '5m', target: 100 },
-        { duration: '2m', target: 0 }
-      ],
-      gracefulRampDown: '30s'
+export const options = isWarmup
+  ? {
+      summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
+      scenarios: {
+        warmup: {
+          executor: 'constant-vus',
+          vus: 20,
+          duration: '30s'
+        }
+      },
+      thresholds: {
+        http_req_failed: ['rate<0.01']
+      }
     }
-  },
-  thresholds: {
-    http_req_failed: ['rate<0.01'],
-    http_req_duration: ['p(95)<1200', 'p(99)<2000']
-  }
-};
+  : {
+      summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
+      scenarios: {
+        node_rust_equivalent: {
+          executor: 'ramping-arrival-rate',
+          timeUnit: '1s',
+          preAllocatedVUs: 200,
+          maxVUs: 400,
+          stages: [
+            { duration: '1m', target: 60 },
+            { duration: '3m', target: 120 },
+            { duration: '3m', target: 180 },
+            { duration: '1m', target: 0 }
+          ]
+        }
+      },
+      thresholds: {
+        http_req_failed: ['rate<0.01'],
+        http_req_duration: ['p(95)<1200', 'p(99)<2000']
+      }
+    };
 
 export default function () {
-  const payload = payloads[Math.floor(Math.random() * payloads.length)];
+  const payload = payloads[__ITER % payloads.length];
   const res = http.post(`${targetUrl}/integrated-search-like`, JSON.stringify(payload), {
     headers: { 'Content-Type': 'application/json' },
     timeout: '10s'

@@ -8,6 +8,7 @@ services:
     cpus: 2.0
     mem_limit: 2g
     env_file:
+      - ./services/common.env
       - ./services/node-api/.env
     volumes:
       - ./data:/app/data:ro
@@ -21,6 +22,7 @@ services:
     cpus: 2.0
     mem_limit: 2g
     env_file:
+      - ./services/common.env
       - ./services/rust-api/.env
     volumes:
       - ./data:/app/data:ro
@@ -74,36 +76,15 @@ services:
     depends_on:
       - prometheus
 
-  k6-node:
+  k6-bench:
     image: grafana/k6:0.53.0
-    container_name: node-rust-equivalent-k6-node
+    container_name: node-rust-equivalent-k6-bench
     user: "0:0"
+    cpus: 1.0
+    mem_limit: 1g
     volumes:
       - ./bench/k6:/scripts:ro
       - ./results:/results
-    command:
-      - run
-      - /scripts/integrated-search-like.js
-      - --env
-      - TARGET_URL=http://node-api:3001
-      - --summary-export
-      - /results/node-summary.json
     depends_on:
       - node-api
-
-  k6-rust:
-    image: grafana/k6:0.53.0
-    container_name: node-rust-equivalent-k6-rust
-    user: "0:0"
-    volumes:
-      - ./bench/k6:/scripts:ro
-      - ./results:/results
-    command:
-      - run
-      - /scripts/integrated-search-like.js
-      - --env
-      - TARGET_URL=http://rust-api:3002
-      - --summary-export
-      - /results/rust-summary.json
-    depends_on:
       - rust-api

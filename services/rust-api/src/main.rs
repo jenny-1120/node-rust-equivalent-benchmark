@@ -111,7 +111,7 @@ struct AppState {
     seed: Arc<Vec<SeedItem>>,
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let port = std::env::var("PORT")
         .ok()
