@@ -14,6 +14,7 @@ use prometheus::{
     register_histogram_vec, register_int_counter_vec, Encoder, HistogramVec, IntCounterVec,
     TextEncoder,
 };
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -109,10 +110,39 @@ struct SearchResponse {
 struct AppState {
     service_name: String,
     seed: Arc<Vec<SeedItem>>,
+    parallel_workers: usize,
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() {
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|x| x.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn main() {
+    let parallel_workers = env_usize("PARALLEL_WORKERS", 4).max(1);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(parallel_workers)
+        .build_global()
+        .expect("rayon pool");
+
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(parallel_workers)
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(async_main(parallel_workers));
+}
+
+async fn async_main(parallel_workers: usize) {
     let port = std::env::var("PORT")
         .ok()
         .and_then(|x| x.parse::<u16>().ok())
@@ -120,11 +150,7 @@ async fn main() {
     let service_name = std::env::var("SERVICE_NAME").unwrap_or_else(|_| "rust-api".to_string());
     let dataset_path = std::env::var("DATASET_PATH")
         .unwrap_or_else(|_| "/app/data/seed/integrated-search-like.json".to_string());
-    let dataset_multiplier = std::env::var("DATASET_MULTIPLIER")
-        .ok()
-        .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(50)
-        .max(1);
+    let dataset_multiplier = env_u64("DATASET_MULTIPLIER", 2000).max(1);
 
     let raw = fs::read_to_string(dataset_path).expect("seed read failed");
     let base_seed = serde_json::from_str::<Vec<SeedItem>>(&raw).expect("seed parse failed");
@@ -141,6 +167,7 @@ async fn main() {
     let state = AppState {
         service_name: service_name.clone(),
         seed: Arc::new(seed),
+        parallel_workers,
     };
 
     let app = Router::new()
@@ -153,10 +180,11 @@ async fn main() {
         .await
         .expect("bind failed");
     println!(
-        "{} listening on {} with {} rows",
+        "{} listening on {} with {} rows and {} workers",
         service_name,
         port,
-        state.seed.len()
+        state.seed.len(),
+        parallel_workers
     );
     axum::serve(listener, app).await.expect("server failed");
 }
@@ -165,7 +193,8 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     Json(serde_json::json!({
         "ok": true,
         "service": state.service_name,
-        "items": state.seed.len()
+        "items": state.seed.len(),
+        "parallelWorkers": state.parallel_workers
     }))
 }
 
@@ -194,39 +223,44 @@ async fn integrated_search_like(
         .with_label_values(&[&state.service_name])
         .inc();
 
+    match tokio::task::spawn_blocking(move || run_search(state, payload)).await {
+        Ok(mut response) => {
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+            REQUEST_DURATION_MS
+                .with_label_values(&[&response.meta.service])
+                .observe(elapsed_ms);
+            response.meta.elapsed_ms = elapsed_ms;
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"message": "search worker join failed"})),
+        )
+            .into_response(),
+    }
+}
+
+fn run_search(state: AppState, payload: SearchRequest) -> SearchResponse {
     let tokens = tokenize_tag_text(&payload.tag_text);
     let per_category_limit = payload.per_category_limit.unwrap_or(30);
 
     let fan_out_start = Instant::now();
-    let mut fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = Vec::new();
-    fan_out_result.reserve(CATEGORIES.len());
-    for category in CATEGORIES {
-        let mut scored: Vec<(usize, f64)> = state
-            .seed
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| {
-                if item.category != category {
-                    return false;
-                }
-                if payload.role != "all" && item.role != payload.role {
-                    return false;
-                }
-                if item.language != payload.language {
-                    return false;
-                }
-                tokens.iter().all(|token| {
-                    item.tags.iter().any(|tag| tag.contains(token))
-                        || item.title.to_lowercase().contains(token)
-                })
-            })
-            .map(|(idx, item)| (idx, score_item(item, &tokens)))
-            .collect();
-
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        scored.truncate(per_category_limit * 2);
-        fan_out_result.push((category, scored));
-    }
+    let fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = CATEGORIES
+        .par_iter()
+        .map(|category| {
+            (
+                *category,
+                fan_out_category(
+                    state.seed.as_ref(),
+                    category,
+                    &payload.role,
+                    &payload.language,
+                    &tokens,
+                    per_category_limit,
+                ),
+            )
+        })
+        .collect();
     STAGE_DURATION_MS
         .with_label_values(&[&state.service_name, "fanOutFilter"])
         .observe(fan_out_start.elapsed().as_secs_f64() * 1000.0);
@@ -306,22 +340,49 @@ async fn integrated_search_like(
         .with_label_values(&[&state.service_name, "mergeSort"])
         .observe(merge_start.elapsed().as_secs_f64() * 1000.0);
 
-    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-    REQUEST_DURATION_MS
-        .with_label_values(&[&state.service_name])
-        .observe(elapsed_ms);
-
-    let response = SearchResponse {
+    SearchResponse {
         meta: SearchResponseMeta {
             service: state.service_name,
-            elapsed_ms,
+            elapsed_ms: 0.0,
             total_candidates: state.seed.len(),
         },
         merged,
         by_category,
-    };
+    }
+}
 
-    (StatusCode::OK, Json(response)).into_response()
+fn fan_out_category(
+    seed: &[SeedItem],
+    category: &str,
+    role: &str,
+    language: &str,
+    tokens: &[String],
+    per_category_limit: usize,
+) -> Vec<(usize, f64)> {
+    let mut scored: Vec<(usize, f64)> = seed
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            if item.category != category {
+                return false;
+            }
+            if role != "all" && item.role != role {
+                return false;
+            }
+            if item.language != language {
+                return false;
+            }
+            tokens.iter().all(|token| {
+                item.tags.iter().any(|tag| tag.contains(token))
+                    || item.title.to_lowercase().contains(token)
+            })
+        })
+        .map(|(idx, item)| (idx, score_item(item, tokens)))
+        .collect();
+
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored.truncate(per_category_limit * 2);
+    scored
 }
 
 fn tokenize_tag_text(tag_text: &str) -> Vec<String> {
@@ -375,4 +436,3 @@ fn build_image_url(item: &SeedItem, user_id: u64) -> String {
         &encoded[0..20]
     )
 }
-

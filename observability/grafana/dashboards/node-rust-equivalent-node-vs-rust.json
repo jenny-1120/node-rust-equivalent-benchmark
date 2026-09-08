@@ -225,12 +225,12 @@
       "id": 7,
       "targets": [
         {
-          "expr": "label_replace(sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*node-rust-equivalent-(node|rust)-api\"}[1m])) / 2 * 100, \"service\", \"$1\", \"name\", \".*node-rust-equivalent-(.+)\")",
+          "expr": "label_replace(sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".*node-rust-equivalent-(node|rust)-api\"}[1m])) / 4 * 100, \"service\", \"$1\", \"name\", \".*node-rust-equivalent-(.+)\")",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
       ],
-      "title": "Container CPU (% of 2-core limit)",
+      "title": "Container CPU (% of 4-core limit)",
       "type": "timeseries"
     }
   ],

@@ -7,8 +7,8 @@
 - 동일 Docker CPU/메모리 제약에서 p95/p99, 처리량, 단계별 처리시간을 시각화
 
 ## 구성
-- `services/node-api`: TypeScript 기준 구현
-- `services/rust-api`: Rust 동등 구현 (`tokio` multi-thread)
+- `services/node-api`: TypeScript 구현 (`worker_threads` 카테고리 병렬)
+- `services/rust-api`: Rust 구현 (`tokio` multi-thread + rayon 카테고리 병렬)
 - `data/seed`: 고정 입력 데이터셋
 - `bench/k6`: 부하 시나리오
 - `observability/prometheus`, `observability/grafana`: 메트릭 수집/시각화
@@ -30,7 +30,7 @@
 - Prometheus: [http://localhost:39090](http://localhost:39090)
 
 ## 공정 비교 원칙
-- 동일 요청 payload, 동일 데이터셋 seed, 동일 컨테이너 자원
+- 동일 요청 payload, 동일 데이터셋 seed, 동일 컨테이너 자원 (`cpus=4.0`, `PARALLEL_WORKERS=4`)
 - Node/Rust 모두 캐시 off
 - 단발 측정 금지: 워밍업 제외 후 반복 측정(기본 6회, 권장 6~10회)
 - 순서 편향 제거: 라운드마다 Node→Rust / Rust→Node 교차 실행
@@ -39,19 +39,21 @@
 - 최종 비교는 Grafana 시각값이 아닌 `results/*-run-*.json` 집계 기준
 
 ## 환경 변수
-서버 설정은 서비스별 `.env`에 있습니다. `docker compose`가 `env_file`로 주입합니다.
+서버 설정은 `services/common.env`와 서비스별 `.env`에 있습니다. `docker compose`가 `env_file`로 주입합니다.
 
+- 공통: `services/common.env` (`DATASET_PATH`, `DATASET_MULTIPLIER`, `PARALLEL_WORKERS`)
 - Node: `services/node-api/.env`
 - Rust: `services/rust-api/.env`
 
-코드에도 기본값이 있어서, 변수를 빼도 서버는 뜹니다. 데이터 규모를 바꿀 때는 아래 두 파일의 `DATASET_MULTIPLIER`를 **같은 값**으로 맞추세요.
+코드에도 기본값이 있어서, 변수를 빼도 서버는 뜹니다. 데이터 규모를 바꿀 때는 `DATASET_MULTIPLIER`를 **같은 값**으로 맞추세요.
 
 | 변수 | Node 기본 | Rust 기본 | 설명 |
 |---|---|---|---|
 | `PORT` | `3001` | `3002` | HTTP 포트 |
 | `SERVICE_NAME` | `node-api` | `rust-api` | 메트릭/로그에 붙는 서비스명 |
 | `DATASET_PATH` | `/app/data/seed/integrated-search-like.json` | 동일 | 컨테이너 안 seed JSON 경로 |
-| `DATASET_MULTIPLIER` | `50` | `50` | seed 복제 배수. 원본 30행 × 이 값 = 메모리 row 수 |
+| `DATASET_MULTIPLIER` | `2000` | `2000` | seed 복제 배수. 원본 30행 × 이 값 = 메모리 row 수 |
+| `PARALLEL_WORKERS` | `4` | `4` | Node worker_threads / Rust Tokio+Rayon 워커 수. Docker `cpus`와 맞출 것 |
 | `RUST_LOG` | — | `info` | Rust만 사용. 로그 레벨 |
 
 로컬에서 Docker 없이 띄울 때는 `DATASET_PATH`를 저장소 기준 `data/seed/integrated-search-like.json`으로 바꾸면 됩니다.
