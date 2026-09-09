@@ -12,6 +12,14 @@ if (( RUNS < 2 )); then
   exit 1
 fi
 
+# Near-saturation defaults for Node/Rust 4-core comparison.
+K6_STAGE1_TARGET="${K6_STAGE1_TARGET:-80}"
+K6_STAGE2_TARGET="${K6_STAGE2_TARGET:-140}"
+K6_STAGE3_TARGET="${K6_STAGE3_TARGET:-200}"
+K6_PRE_ALLOCATED_VUS="${K6_PRE_ALLOCATED_VUS:-250}"
+K6_MAX_VUS="${K6_MAX_VUS:-500}"
+K6_THINK_TIME_MS="${K6_THINK_TIME_MS:-0}"
+
 wait_for_health() {
   local name="$1"
   local url="$2"
@@ -45,6 +53,12 @@ run_k6() {
   docker compose run --rm \
     k6-bench \
     run /scripts/integrated-search-like.js \
+    --env K6_STAGE1_TARGET="$K6_STAGE1_TARGET" \
+    --env K6_STAGE2_TARGET="$K6_STAGE2_TARGET" \
+    --env K6_STAGE3_TARGET="$K6_STAGE3_TARGET" \
+    --env K6_PRE_ALLOCATED_VUS="$K6_PRE_ALLOCATED_VUS" \
+    --env K6_MAX_VUS="$K6_MAX_VUS" \
+    --env K6_THINK_TIME_MS="$K6_THINK_TIME_MS" \
     "$@"
   local status=$?
   set -e
@@ -82,6 +96,8 @@ run_once() {
 
 echo "[1/5] Starting core services..."
 docker compose up -d --build node-api rust-api cadvisor prometheus grafana
+
+echo "k6 profile: stage=${K6_STAGE1_TARGET}/${K6_STAGE2_TARGET}/${K6_STAGE3_TARGET} rps, preVUs=${K6_PRE_ALLOCATED_VUS}, maxVUs=${K6_MAX_VUS}, thinkTimeMs=${K6_THINK_TIME_MS}"
 
 echo "[2/5] Waiting for API readiness..."
 wait_for_health "node-api" "http://localhost:3101/health"

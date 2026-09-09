@@ -6,6 +6,12 @@ const elapsedTrend = new Trend('app_elapsed_ms');
 
 const targetUrl = __ENV.TARGET_URL || 'http://node-api:3001';
 const isWarmup = __ENV.K6_WARMUP === '1';
+const stage1Target = Number(__ENV.K6_STAGE1_TARGET || 80);
+const stage2Target = Number(__ENV.K6_STAGE2_TARGET || 140);
+const stage3Target = Number(__ENV.K6_STAGE3_TARGET || 200);
+const preAllocatedVUs = Number(__ENV.K6_PRE_ALLOCATED_VUS || 250);
+const maxVUs = Number(__ENV.K6_MAX_VUS || 500);
+const thinkTimeMs = Number(__ENV.K6_THINK_TIME_MS || (isWarmup ? 200 : 0));
 
 const payloads = [
   { userId: 21, tagText: 'class study', role: 'teacher', language: 'ko', perCategoryLimit: 20 },
@@ -35,12 +41,12 @@ export const options = isWarmup
         node_rust_equivalent: {
           executor: 'ramping-arrival-rate',
           timeUnit: '1s',
-          preAllocatedVUs: 100,
-          maxVUs: 200,
+          preAllocatedVUs,
+          maxVUs,
           stages: [
-            { duration: '1m', target: 40 },
-            { duration: '3m', target: 80 },
-            { duration: '3m', target: 100 },
+            { duration: '1m', target: stage1Target },
+            { duration: '3m', target: stage2Target },
+            { duration: '3m', target: stage3Target },
             { duration: '1m', target: 0 }
           ]
         }
@@ -77,5 +83,7 @@ export default function () {
     }
   }
 
-  sleep(0.2);
+  if (thinkTimeMs > 0) {
+    sleep(thinkTimeMs / 1000);
+  }
 }
