@@ -14,7 +14,6 @@ use prometheus::{
     register_histogram_vec, register_int_counter_vec, Encoder, HistogramVec, IntCounterVec,
     TextEncoder,
 };
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -66,6 +65,8 @@ struct SeedItem {
     updated_at: String,
     owner_user_id: u64,
     purchased_by: Vec<u64>,
+    #[serde(skip)]
+    title_lower: String,
 }
 
 #[derive(Deserialize)]
@@ -129,11 +130,6 @@ fn env_usize(name: &str, default: usize) -> usize {
 
 fn main() {
     let parallel_workers = env_usize("PARALLEL_WORKERS", 4).max(1);
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(parallel_workers)
-        .build_global()
-        .expect("rayon pool");
-
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(parallel_workers)
         .enable_all()
@@ -161,6 +157,7 @@ async fn async_main(parallel_workers: usize) {
             cloned.id = item.id + idx * 100000;
             cloned.popularity = item.popularity + (idx % 10) as f64;
             cloned.title = format!("{} #{}", item.title, idx);
+            cloned.title_lower = cloned.title.to_lowercase();
             seed.push(cloned);
         }
     }
@@ -245,22 +242,20 @@ fn run_search(state: AppState, payload: SearchRequest) -> SearchResponse {
     let per_category_limit = payload.per_category_limit.unwrap_or(30);
 
     let fan_out_start = Instant::now();
-    let fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = CATEGORIES
-        .par_iter()
-        .map(|category| {
-            (
-                *category,
-                fan_out_category(
-                    state.seed.as_ref(),
-                    category,
-                    &payload.role,
-                    &payload.language,
-                    &tokens,
-                    per_category_limit,
-                ),
-            )
-        })
-        .collect();
+    let mut fan_out_result: Vec<(&'static str, Vec<(usize, f64)>)> = Vec::with_capacity(CATEGORIES.len());
+    for category in CATEGORIES {
+        fan_out_result.push((
+            category,
+            fan_out_category(
+                state.seed.as_ref(),
+                category,
+                &payload.role,
+                &payload.language,
+                &tokens,
+                per_category_limit,
+            ),
+        ));
+    }
     STAGE_DURATION_MS
         .with_label_values(&[&state.service_name, "fanOutFilter"])
         .observe(fan_out_start.elapsed().as_secs_f64() * 1000.0);
@@ -374,7 +369,7 @@ fn fan_out_category(
             }
             tokens.iter().all(|token| {
                 item.tags.iter().any(|tag| tag.contains(token))
-                    || item.title.to_lowercase().contains(token)
+                    || item.title_lower.contains(token)
             })
         })
         .map(|(idx, item)| (idx, score_item(item, tokens)))
@@ -404,7 +399,7 @@ fn score_item(item: &SeedItem, tokens: &[String]) -> f64 {
 
     let title_bonus = if tokens
         .iter()
-        .any(|token| item.title.to_lowercase().contains(token))
+        .any(|token| item.title_lower.contains(token))
     {
         5.0
     } else {

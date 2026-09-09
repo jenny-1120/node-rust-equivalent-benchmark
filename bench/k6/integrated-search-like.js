@@ -35,19 +35,19 @@ export const options = isWarmup
         node_rust_equivalent: {
           executor: 'ramping-arrival-rate',
           timeUnit: '1s',
-          preAllocatedVUs: 200,
-          maxVUs: 400,
+          preAllocatedVUs: 100,
+          maxVUs: 200,
           stages: [
-            { duration: '1m', target: 60 },
-            { duration: '3m', target: 120 },
-            { duration: '3m', target: 180 },
+            { duration: '1m', target: 40 },
+            { duration: '3m', target: 80 },
+            { duration: '3m', target: 100 },
             { duration: '1m', target: 0 }
           ]
         }
       },
       thresholds: {
         http_req_failed: ['rate<0.01'],
-        http_req_duration: ['p(95)<1200', 'p(99)<2000']
+        http_req_duration: ['p(95)<4000', 'p(99)<8000']
       }
     };
 

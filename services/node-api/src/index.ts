@@ -1,14 +1,7 @@
-import crypto from 'node:crypto';
-import { Worker } from 'node:worker_threads';
 import express from 'express';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { Counter, Histogram, Registry, collectDefaultMetrics } from 'prom-client';
-import {
-  categories,
-  tokenizeTagText,
-  type Category,
-  type CategoryJob,
-  type FanOutHit
-} from './search-core.js';
 
 interface SearchRequest {
   userId: number;
@@ -28,115 +21,52 @@ interface SearchResponseItem {
   imageUrl: string;
 }
 
-interface WorkerResultMessage {
-  type: 'result';
+type Category =
+  | 'template'
+  | 'character'
+  | 'background'
+  | 'effect'
+  | 'prop'
+  | 'speechBubble'
+  | 'textTemplate';
+
+interface SeedItem {
+  id: number;
   category: Category;
-  scored: FanOutHit[];
+  role: string;
+  language: string;
+  title: string;
+  tags: string[];
+  popularity: number;
+  updatedAt: string;
+  ownerUserId: number;
+  purchasedBy: number[];
 }
 
-interface WorkerReadyMessage {
-  type: 'ready';
-  items: number;
-}
-
-type WorkerMessage = WorkerResultMessage | WorkerReadyMessage;
-
-interface PendingJob {
-  job: CategoryJob;
-  resolve: (value: { category: Category; scored: FanOutHit[] }) => void;
-  reject: (err: Error) => void;
-}
-
-class SearchWorkerPool {
-  private readonly idle: Worker[] = [];
-  private readonly queue: PendingJob[] = [];
-
-  static async create(
-    size: number,
-    datasetPath: string,
-    datasetMultiplier: number
-  ): Promise<{ pool: SearchWorkerPool; items: number }> {
-    const pool = new SearchWorkerPool();
-    const workers = await Promise.all(
-      Array.from({ length: size }, () =>
-        SearchWorkerPool.spawnWorker(datasetPath, datasetMultiplier)
-      )
-    );
-    pool.idle.push(...workers.map((entry) => entry.worker));
-    return { pool, items: workers[0]?.items ?? 0 };
-  }
-
-  private static spawnWorker(
-    datasetPath: string,
-    datasetMultiplier: number
-  ): Promise<{ worker: Worker; items: number }> {
-    return new Promise((resolve, reject) => {
-      const worker = new Worker(new URL('./search-worker.js', import.meta.url), {
-        workerData: { datasetPath, datasetMultiplier }
-      });
-      const onError = (err: Error) => reject(err);
-      const onExit = (code: number) => {
-        if (code !== 0) reject(new Error(`search worker exited with code ${code}`));
-      };
-      worker.once('error', onError);
-      worker.once('exit', onExit);
-      worker.once('message', (msg: WorkerMessage) => {
-        worker.off('error', onError);
-        worker.off('exit', onExit);
-        if (msg.type === 'ready') {
-          resolve({ worker, items: msg.items });
-          return;
-        }
-        reject(new Error('search worker did not send ready'));
-      });
-    });
-  }
-
-  run(job: CategoryJob): Promise<{ category: Category; scored: FanOutHit[] }> {
-    return new Promise((resolve, reject) => {
-      const pending: PendingJob = { job, resolve, reject };
-      const worker = this.idle.pop();
-      if (worker) this.dispatch(worker, pending);
-      else this.queue.push(pending);
-    });
-  }
-
-  private dispatch(worker: Worker, pending: PendingJob): void {
-    const onMessage = (msg: WorkerMessage) => {
-      cleanup();
-      this.release(worker);
-      if (msg.type === 'result') {
-        pending.resolve({ category: msg.category, scored: msg.scored });
-        return;
-      }
-      pending.reject(new Error('unexpected worker message'));
-    };
-    const onError = (err: Error) => {
-      cleanup();
-      pending.reject(err);
-    };
-    const cleanup = () => {
-      worker.off('message', onMessage);
-      worker.off('error', onError);
-    };
-    worker.once('message', onMessage);
-    worker.once('error', onError);
-    worker.postMessage(pending.job);
-  }
-
-  private release(worker: Worker): void {
-    const next = this.queue.shift();
-    if (next) this.dispatch(worker, next);
-    else this.idle.push(worker);
-  }
-}
+const categories: Category[] = [
+  'template',
+  'character',
+  'background',
+  'effect',
+  'prop',
+  'speechBubble',
+  'textTemplate'
+];
 
 const port = Number(process.env.PORT ?? 3001);
 const serviceName = process.env.SERVICE_NAME ?? 'node-api';
 const metricPrefix = serviceName.replace(/[^a-zA-Z0-9_]/g, '_');
 const datasetPath = process.env.DATASET_PATH ?? '/app/data/seed/integrated-search-like.json';
 const datasetMultiplier = Math.max(1, Number(process.env.DATASET_MULTIPLIER ?? 2000));
-const parallelWorkers = Math.max(1, Number(process.env.PARALLEL_WORKERS ?? 4));
+const seedBase = JSON.parse(fs.readFileSync(datasetPath, 'utf-8')) as SeedItem[];
+const seedData: SeedItem[] = Array.from({ length: datasetMultiplier }).flatMap((_, idx) =>
+  seedBase.map((item) => ({
+    ...item,
+    id: item.id + idx * 100000,
+    popularity: item.popularity + (idx % 10),
+    title: `${item.title} #${idx}`
+  }))
+);
 
 const registry = new Registry();
 collectDefaultMetrics({ register: registry, prefix: `${metricPrefix}_` });
@@ -171,26 +101,39 @@ function nowMs(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);
 }
 
-function buildImageUrl(
-  item: Pick<FanOutHit, 'id' | 'category' | 'title' | 'updatedAt'>,
-  userId: number
-): string {
+function tokenizeTagText(tagText: string): string[] {
+  return tagText
+    .toLowerCase()
+    .split(/\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function scoreItem(item: SeedItem, tokens: string[]): number {
+  let tagMatchCount = 0;
+  for (const token of tokens) {
+    if (item.tags.some((tag) => tag.includes(token))) {
+      tagMatchCount += 1;
+    }
+  }
+
+  const titleBonus = tokens.some((token) => item.title.toLowerCase().includes(token)) ? 5 : 0;
+  const freshnessScore = 20 / (1 + (item.id % 30));
+  return tagMatchCount * 10 + item.popularity * 0.1 + titleBonus + freshnessScore;
+}
+
+function buildImageUrl(item: SeedItem, userId: number): string {
   const payload = `${item.id}:${item.category}:${item.title}:${userId}:${item.updatedAt}`;
   const digest = crypto.createHash('sha256').update(payload).digest('hex');
   const shard = digest.slice(0, 2);
   return `https://cdn.local/${item.category}/${shard}/${item.id}?sig=${digest.slice(0, 20)}`;
 }
 
-const workerPoolReady = SearchWorkerPool.create(parallelWorkers, datasetPath, datasetMultiplier);
-let workerPool: SearchWorkerPool | undefined;
-let seedItemCount = 0;
-
 app.get('/health', (_req, res) => {
   res.json({
-    ok: Boolean(workerPool),
+    ok: true,
     service: serviceName,
-    items: seedItemCount,
-    parallelWorkers
+    items: seedData.length
   });
 });
 
@@ -200,10 +143,6 @@ app.get('/metrics', async (_req, res) => {
 });
 
 app.post('/integrated-search-like', async (req, res) => {
-  if (!workerPool) {
-    return res.status(503).json({ message: 'workers not ready' });
-  }
-
   const startedAt = nowMs();
   requestCounter.inc({ service: serviceName });
 
@@ -222,23 +161,33 @@ app.post('/integrated-search-like', async (req, res) => {
 
   const tFanOutStart = nowMs();
   const fanOutResult = await Promise.all(
-    categories.map((category) =>
-      workerPool!.run({
-        category,
-        tokens,
-        role,
-        language,
-        perCategoryLimit
-      })
-    )
+    categories.map(async (category) => {
+      const filtered = seedData.filter((item) => {
+        if (item.category !== category) return false;
+        if (role !== 'all' && item.role !== role) return false;
+        if (item.language !== language) return false;
+        return tokens.every(
+          (token) =>
+            item.tags.some((tag) => tag.includes(token)) ||
+            item.title.toLowerCase().includes(token)
+        );
+      });
+
+      const scored = filtered
+        .map((item) => ({ item, score: scoreItem(item, tokens) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, perCategoryLimit * 2);
+
+      return { category, scored };
+    })
   );
   stageDurationMs.observe({ service: serviceName, stage: 'fanOutFilter' }, nowMs() - tFanOutStart);
 
   const tPurchaseStart = nowMs();
   const purchaseAdjusted = fanOutResult.map(({ category, scored }) => {
-    const adjusted = scored.map((item) => {
+    const adjusted = scored.map(({ item, score }) => {
       const isPurchased = item.purchasedBy.includes(userId) || item.ownerUserId === userId;
-      return { category, item, score: isPurchased ? item.score * 1.1 : item.score, isPurchased };
+      return { category, item, score: isPurchased ? score * 1.1 : score, isPurchased };
     });
     return { category, adjusted };
   });
@@ -281,24 +230,13 @@ app.post('/integrated-search-like', async (req, res) => {
   requestDurationMs.observe({ service: serviceName }, elapsed);
 
   return res.json({
-    meta: { service: serviceName, elapsedMs: elapsed, totalCandidates: seedItemCount },
+    meta: { service: serviceName, elapsedMs: elapsed, totalCandidates: seedData.length },
     merged,
     byCategory
   });
 });
 
-workerPoolReady
-  .then(({ pool, items }) => {
-    workerPool = pool;
-    seedItemCount = items;
-    app.listen(port, () => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `${serviceName} listening on ${port} with ${seedItemCount} rows and ${parallelWorkers} workers`
-      );
-    });
-  })
-  .catch((err) => {
-    console.error('failed to start search workers', err);
-    process.exit(1);
-  });
+app.listen(port, () => {
+  // eslint-disable-next-line no-console
+  console.log(`${serviceName} listening on ${port} with ${seedData.length} rows`);
+});

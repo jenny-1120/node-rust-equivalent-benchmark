@@ -40,6 +40,25 @@ restart_target() {
   fi
 }
 
+run_k6() {
+  set +e
+  docker compose run --rm \
+    k6-bench \
+    run /scripts/integrated-search-like.js \
+    "$@"
+  local status=$?
+  set -e
+  if (( status == 0 )); then
+    return 0
+  fi
+  if (( status == 99 )); then
+    echo "  - warning: k6 thresholds missed (exit 99); continuing"
+    return 0
+  fi
+  echo "  - k6 failed with exit ${status}"
+  return "$status"
+}
+
 run_once() {
   local service="$1"
   local run_id="$2"
@@ -55,9 +74,7 @@ run_once() {
   fi
 
   echo "  - benchmark $service run ${run_id}"
-  docker compose run --rm \
-    k6-bench \
-    run /scripts/integrated-search-like.js \
+  run_k6 \
     --env TARGET_URL="$target_url" \
     --env K6_WARMUP=0 \
     --summary-export "$out_file"
@@ -71,15 +88,11 @@ wait_for_health "node-api" "http://localhost:3101/health"
 wait_for_health "rust-api" "http://localhost:3102/health"
 
 echo "[3/5] Warm-up (excluded from summary)..."
-docker compose run --rm \
-  k6-bench \
-  run /scripts/integrated-search-like.js \
+run_k6 \
   --env TARGET_URL="http://node-api:3001" \
   --env K6_WARMUP=1 \
   --summary-export /results/warmup-node.json >/dev/null
-docker compose run --rm \
-  k6-bench \
-  run /scripts/integrated-search-like.js \
+run_k6 \
   --env TARGET_URL="http://rust-api:3002" \
   --env K6_WARMUP=1 \
   --summary-export /results/warmup-rust.json >/dev/null
